@@ -18,10 +18,13 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
     steps:
+      # Get the service code at the tagged commit
       - uses: actions/checkout@v4
-      # Tag svc-a-v0.2.0 -> version v0.2.0
+      # Tag svc-a-v0.2.0 -> cut off everything up to "-v" -> add "v" -> v0.2.0
+      # Saved as this step's output "version" (step id: v)
       - id: v
         run: echo "version=v${GITHUB_REF_NAME##*-v}" >> "$GITHUB_OUTPUT"
+      # Fake build: a real one runs docker build + push here
       - name: Build
         run: echo "Built image ${{ inputs.service }}:${{ steps.v.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
 
@@ -34,9 +37,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.token }}
         run: |
+          # Newest branch that starts with release/
           b=$(gh api "repos/${{ inputs.platform_repo }}/branches" --paginate -q '.[].name | select(startswith("release/"))' | sort | tail -1)
+          # Stop if no release is open
           [ -n "$b" ] || { echo "::error::No open release branch. Run start-release in the platform repo first."; exit 1; }
           echo "branch=$b" >> "$GITHUB_OUTPUT"
+      # Get the platform repo at that release branch
       - uses: actions/checkout@v4
         with:
           repository: ${{ inputs.platform_repo }}
@@ -47,8 +53,10 @@ jobs:
           SERVICE: ${{ inputs.service }}
           VERSION: ${{ needs.build.outputs.version }}
         run: |
+          # Replace the tag line, e.g. tag: "v0.2.0"
           sed -i "s/^tag: .*/tag: \"$VERSION\"/" "environments/staging/$SERVICE.yaml"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "chore(staging): $SERVICE $VERSION"
+          # Push; if another service pushed first, pull and try again (up to 3 times)
           for i in 1 2 3; do git pull --rebase -q && git push -q && break; sleep 3; done
