@@ -1,0 +1,54 @@
+# Reusable: build a tagged service release, then put it on staging in the open release branch.
+name: release-build
+on:
+  workflow_call:
+    inputs:
+      service:
+        type: string
+        required: true
+      platform_repo:
+        type: string
+        required: true
+    secrets:
+      token:
+        required: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      # Tag svc-a-v0.2.0 -> version v0.2.0
+      - id: v
+        run: echo "version=v${GITHUB_REF_NAME##*-v}" >> "$GITHUB_OUTPUT"
+      - name: Build
+        run: echo "Built image ${{ inputs.service }}:${{ steps.v.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+
+  update-staging:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find the open release branch
+        id: rb
+        env:
+          GH_TOKEN: ${{ secrets.token }}
+        run: |
+          b=$(gh api "repos/${{ inputs.platform_repo }}/branches" --paginate -q '.[].name | select(startswith("release/"))' | sort | tail -1)
+          [ -n "$b" ] || { echo "::error::No open release branch. Run start-release in the platform repo first."; exit 1; }
+          echo "branch=$b" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.platform_repo }}
+          ref: ${{ steps.rb.outputs.branch }}
+          token: ${{ secrets.token }}
+      - name: Set version on staging
+        env:
+          SERVICE: ${{ inputs.service }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          sed -i "s/^tag: .*/tag: \"$VERSION\"/" "environments/staging/$SERVICE.yaml"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore(staging): $SERVICE $VERSION"
+          for i in 1 2 3; do git pull --rebase -q && git push -q && break; sleep 3; done
