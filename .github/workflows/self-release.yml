@@ -1,0 +1,13 @@
+# Releases this template repo itself. GITHUB_TOKEN is enough: nothing must run on the tag.
+name: self-release
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
