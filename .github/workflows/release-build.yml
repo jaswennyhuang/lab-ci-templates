@@ -9,6 +9,11 @@ on:
       platform_repo:
         type: string
         required: true
+      # Empty: use the open release/* branch (OneFlow). Set it (e.g. main) for GitHub Flow.
+      staging_branch:
+        type: string
+        required: false
+        default: ''
     secrets:
       token:
         required: true
@@ -37,6 +42,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.token }}
         run: |
+          # GitHub Flow: a branch was given, use it
+          if [ -n "${{ inputs.staging_branch }}" ]; then echo "branch=${{ inputs.staging_branch }}" >> "$GITHUB_OUTPUT"; exit 0; fi
           # Newest branch that starts with release/
           b=$(gh api "repos/${{ inputs.platform_repo }}/branches" --paginate -q '.[].name | select(startswith("release/"))' | sort | tail -1)
           # Stop if no release is open
